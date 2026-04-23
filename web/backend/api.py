@@ -45,6 +45,7 @@ router = APIRouter()
 # 默认路径
 DEFAULT_SESSION_DIR = os.path.expanduser("~/.codex/sessions/")
 DEFAULT_CLAUDE_SESSION_DIR = os.path.expanduser("~/.claude/projects/")
+DEFAULT_KIRO_SESSION_DIR = os.path.expanduser("~/.kiro/sessions/cli/")
 DEFAULT_MEMORY_FILE = os.path.expanduser("~/.codex/memories/MEMORY.md")
 DEFAULT_CONFIG_FILE = os.path.expanduser("~/.codex-patcher/config.json")
 
@@ -125,6 +126,8 @@ def _resolve_format(format_str: str) -> Optional[SessionFormat]:
         return SessionFormat.CLAUDE_CODE
     elif format_str == 'opencode':
         return SessionFormat.OPENCODE
+    elif format_str == 'kiro':
+        return SessionFormat.KIRO
     return None  # auto
 
 
@@ -134,6 +137,8 @@ def _to_schema_format(fmt: SessionFormat) -> SessionFormatEnum:
         return SessionFormatEnum.CLAUDE_CODE
     elif fmt == SessionFormat.OPENCODE:
         return SessionFormatEnum.OPENCODE
+    elif fmt == SessionFormat.KIRO:
+        return SessionFormatEnum.KIRO
     return SessionFormatEnum.CODEX
 
 
@@ -215,12 +220,16 @@ def list_sessions(
             scan_targets.append((DEFAULT_CLAUDE_SESSION_DIR, SessionFormat.CLAUDE_CODE))
         if os.path.exists(DEFAULT_OPENCODE_DB):
             scan_opencode = True
+        if os.path.exists(DEFAULT_KIRO_SESSION_DIR):
+            scan_targets.append((DEFAULT_KIRO_SESSION_DIR, SessionFormat.KIRO))
     elif session_format == SessionFormat.CODEX:
         scan_targets.append((DEFAULT_SESSION_DIR, SessionFormat.CODEX))
     elif session_format == SessionFormat.CLAUDE_CODE:
         scan_targets.append((DEFAULT_CLAUDE_SESSION_DIR, SessionFormat.CLAUDE_CODE))
     elif session_format == SessionFormat.OPENCODE:
         scan_opencode = True
+    elif session_format == SessionFormat.KIRO:
+        scan_targets.append((DEFAULT_KIRO_SESSION_DIR, SessionFormat.KIRO))
 
     # 扫描 JSONL 格式会话（Codex / Claude Code）
     for session_dir, fmt in scan_targets:
@@ -309,6 +318,8 @@ def _session_core_format(session: Session) -> SessionFormat:
         return SessionFormat.CLAUDE_CODE
     elif session.format == SessionFormatEnum.OPENCODE:
         return SessionFormat.OPENCODE
+    elif session.format == SessionFormatEnum.KIRO:
+        return SessionFormat.KIRO
     return SessionFormat.CODEX
 
 

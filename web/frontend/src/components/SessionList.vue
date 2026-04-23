@@ -12,7 +12,7 @@
     </div>
 
     <!-- 格式 Tab（多格式时显示） -->
-    <div v-if="settingsStore.claudeCodeEnabled || settingsStore.opencodeEnabled" class="format-tabs">
+    <div v-if="settingsStore.claudeCodeEnabled || settingsStore.opencodeEnabled || settingsStore.kiroEnabled" class="format-tabs">
       <button
         class="format-tab"
         :class="{ active: sessionStore.activeTab === 'codex' }"
@@ -38,6 +38,15 @@
       >
         {{ $t('session.format_opencode') }}
         <span class="tab-count">{{ sessionStore.opencodeSessions.length }}</span>
+      </button>
+      <button
+        v-if="settingsStore.kiroEnabled"
+        class="format-tab"
+        :class="{ active: sessionStore.activeTab === 'kiro' }"
+        @click="sessionStore.setActiveTab('kiro')"
+      >
+        {{ $t('session.format_kiro') }}
+        <span class="tab-count">{{ sessionStore.kiroSessions.length }}</span>
       </button>
     </div>
 

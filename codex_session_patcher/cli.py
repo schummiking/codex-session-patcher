@@ -246,12 +246,15 @@ def resolve_session_format(args) -> SessionFormat:
         return SessionFormat.CLAUDE_CODE
     elif fmt == 'opencode':
         return SessionFormat.OPENCODE
+    elif fmt == 'kiro':
+        return SessionFormat.KIRO
     else:
         # auto 模式：如果指定了 session-dir，则自动检测
         if args.session_dir is not None and args.session_dir != argparse.SUPPRESS:
             codex_dir = os.path.expanduser("~/.codex/")
             claude_dir = os.path.expanduser("~/.claude/")
             opencode_dir = os.path.expanduser("~/.local/share/opencode/")
+            kiro_dir = os.path.expanduser("~/.kiro/")
             expanded = os.path.expanduser(args.session_dir)
             if expanded.startswith(codex_dir):
                 return SessionFormat.CODEX
@@ -259,6 +262,8 @@ def resolve_session_format(args) -> SessionFormat:
                 return SessionFormat.CLAUDE_CODE
             if expanded.startswith(opencode_dir):
                 return SessionFormat.OPENCODE
+            if expanded.startswith(kiro_dir):
+                return SessionFormat.KIRO
 
         # 自动：如果两个目录都存在，优先 Codex（向后兼容）
         codex_dir = os.path.expanduser("~/.codex/sessions/")
@@ -276,13 +281,13 @@ def resolve_session_format(args) -> SessionFormat:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Session Patcher - 清理 Codex CLI / Claude Code / OpenCode 会话中的拒绝回复和无效 thinking blocks'
+        description='Session Patcher - 清理 Codex CLI / Claude Code / OpenCode / Kiro CLI 会话中的拒绝回复和无效 thinking blocks'
     )
 
     # 会话清理参数
     parser.add_argument('--session-dir', default=None,
                         help='会话目录 (默认根据 --format 自动选择)')
-    parser.add_argument('--format', choices=['codex', 'claude-code', 'opencode', 'auto'],
+    parser.add_argument('--format', choices=['codex', 'claude-code', 'opencode', 'kiro', 'auto'],
                         default='auto',
                         help='会话格式 (默认: auto 自动检测)')
     parser.add_argument('--dry-run', action='store_true', help='仅预览，不实际修改文件')
@@ -375,7 +380,7 @@ def main():
     if session_dir is None:
         session_dir = SessionParser.DEFAULT_DIRS.get(session_format)
 
-    format_label = 'Codex' if session_format == SessionFormat.CODEX else 'Claude Code'
+    format_label = {SessionFormat.CODEX: 'Codex', SessionFormat.CLAUDE_CODE: 'Claude Code', SessionFormat.KIRO: 'Kiro CLI'}.get(session_format, 'Unknown')
     print(f'模式: {format_label}')
     print(f'目录: {os.path.expanduser(session_dir)}')
     print()

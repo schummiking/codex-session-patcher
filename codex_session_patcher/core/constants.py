@@ -32,5 +32,8 @@ BACKUP_KEEP_COUNT = 5
 # Claude Code 默认会话目录
 DEFAULT_CLAUDE_CODE_SESSION_DIR = "~/.claude/projects/"
 
+# Kiro CLI 默认会话目录
+DEFAULT_KIRO_SESSION_DIR = "~/.kiro/sessions/cli/"
+
 # Claude Code 中跳过处理的行类型
 CLAUDE_CODE_SKIP_TYPES = {"file-history-snapshot", "last-prompt", "system"}

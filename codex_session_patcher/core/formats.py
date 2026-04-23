@@ -19,6 +19,7 @@ class SessionFormat(Enum):
     CODEX = "codex"
     CLAUDE_CODE = "claude_code"
     OPENCODE = "opencode"
+    KIRO = "kiro"
 
 
 # ─── 策略基类 ─────────────────────────────────────────────────────────────────
@@ -273,6 +274,64 @@ class OpenCodeFormatStrategy(FormatStrategy):
         return updated, removed
 
 
+# ─── Kiro CLI 策略 ────────────────────────────────────────────────────────────
+
+class KiroFormatStrategy(FormatStrategy):
+    """Kiro CLI 格式：{"version":"v1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"..."}]}}"""
+
+    def get_assistant_messages(self, lines):
+        messages = []
+        for idx, line in enumerate(lines):
+            if line.get('kind') == 'AssistantMessage':
+                messages.append((idx, line))
+        return messages
+
+    def get_thinking_items(self, lines):
+        return []
+
+    def extract_text_content(self, msg):
+        data = msg.get('data', {})
+        content = data.get('content', [])
+        if isinstance(content, list):
+            texts = []
+            for item in content:
+                if isinstance(item, dict) and item.get('kind') == 'text':
+                    texts.append(item.get('data', ''))
+            return '\n'.join(texts)
+        return ''
+
+    def update_text_content(self, msg, new_text):
+        updated = copy.deepcopy(msg)
+        data = updated.get('data', {})
+        content = data.get('content', [])
+        if isinstance(content, list):
+            replaced = False
+            for item in content:
+                if isinstance(item, dict) and item.get('kind') == 'text':
+                    item['data'] = new_text
+                    replaced = True
+                    break
+            if not replaced:
+                content.append({'kind': 'text', 'data': new_text})
+        else:
+            data['content'] = [{'kind': 'text', 'data': new_text}]
+        return updated
+
+    def remove_thinking_from_message(self, msg):
+        updated = copy.deepcopy(msg)
+        data = updated.get('data', {})
+        content = data.get('content', [])
+        if not isinstance(content, list):
+            return updated, 0
+        original_len = len(content)
+        data['content'] = [
+            item for item in content
+            if not (isinstance(item, dict) and item.get('kind') in ('thinking', 'reasoning'))
+        ]
+        removed = original_len - len(data['content'])
+        return updated, removed
+
+
 # ─── 工厂 & 工具函数 ──────────────────────────────────────────────────────────
 
 def get_format_strategy(fmt: SessionFormat) -> FormatStrategy:
@@ -282,6 +341,8 @@ def get_format_strategy(fmt: SessionFormat) -> FormatStrategy:
         return ClaudeCodeFormatStrategy()
     elif fmt == SessionFormat.OPENCODE:
         return OpenCodeFormatStrategy()
+    elif fmt == SessionFormat.KIRO:
+        return KiroFormatStrategy()
     raise ValueError(f"未知的会话格式: {fmt}")
 
 
@@ -304,6 +365,8 @@ def detect_session_format(file_path: str) -> SessionFormat:
                     return SessionFormat.CODEX
                 if line_type in ('assistant', 'user', 'system', 'file-history-snapshot', 'last-prompt'):
                     return SessionFormat.CLAUDE_CODE
+                if data.get('version') == 'v1' and data.get('kind') in ('Prompt', 'AssistantMessage', 'ToolResults'):
+                    return SessionFormat.KIRO
     except Exception:
         logger.warning("检测会话格式失败: %s", file_path, exc_info=True)
     # 回退：根据目录路径推测
@@ -316,12 +379,15 @@ def _detect_format_from_path(file_path: str) -> SessionFormat:
     codex_dir = os.path.expanduser("~/.codex/")
     claude_dir = os.path.expanduser("~/.claude/")
     opencode_dir = os.path.expanduser("~/.local/share/opencode/")
+    kiro_dir = os.path.expanduser("~/.kiro/")
     if expanded.startswith(codex_dir):
         return SessionFormat.CODEX
     if expanded.startswith(claude_dir):
         return SessionFormat.CLAUDE_CODE
     if expanded.startswith(opencode_dir) or expanded.endswith('.db'):
         return SessionFormat.OPENCODE
+    if expanded.startswith(kiro_dir):
+        return SessionFormat.KIRO
     return SessionFormat.CODEX  # 默认回退
 
 

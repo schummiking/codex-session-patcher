@@ -163,7 +163,13 @@
                     {{ $t('preview.replacement') }}
                     <n-tag v-if="change._ai_generated" size="small" type="success" style="margin-left: 6px">AI</n-tag>
                   </div>
-                  <pre>{{ change.replacement }}</pre>
+                  <n-input
+                    type="textarea"
+                    :value="change.replacement"
+                    @update:value="val => change.replacement = val"
+                    :autosize="{ minRows: 2, maxRows: 10 }"
+                    size="small"
+                  />
                 </div>
               </div>
 

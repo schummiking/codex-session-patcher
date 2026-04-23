@@ -38,6 +38,7 @@ class SessionParser:
         SessionFormat.CODEX: "~/.codex/sessions/",
         SessionFormat.CLAUDE_CODE: "~/.claude/projects/",
         SessionFormat.OPENCODE: "~/.local/share/opencode/",
+        SessionFormat.KIRO: "~/.kiro/sessions/cli/",
     }
 
     def __init__(self, session_dir: str = None, session_format: SessionFormat = None):
@@ -93,6 +94,9 @@ class SessionParser:
         if fmt == SessionFormat.CODEX:
             date, session_id = self._parse_codex_filename(filename, mtime_str)
             project_path = None
+        elif fmt == SessionFormat.KIRO:
+            date, session_id = self._parse_kiro_filename(filename, mtime_str)
+            project_path = None
         else:
             date, session_id = self._parse_claude_filename(filename, mtime_str)
             project_path = self._extract_project_path(root)
@@ -113,10 +117,13 @@ class SessionParser:
         """自动检测文件格式"""
         codex_dir = os.path.expanduser("~/.codex/")
         claude_dir = os.path.expanduser("~/.claude/")
+        kiro_dir = os.path.expanduser("~/.kiro/")
         if root.startswith(codex_dir):
             return SessionFormat.CODEX
         if root.startswith(claude_dir):
             return SessionFormat.CLAUDE_CODE
+        if root.startswith(kiro_dir):
+            return SessionFormat.KIRO
         # 回退到内容检测
         return detect_session_format(full_path)
 
@@ -132,6 +139,14 @@ class SessionParser:
     def _parse_claude_filename(filename: str, mtime_str: str) -> Tuple[str, str]:
         """从 Claude Code 文件名提取日期和 ID"""
         # Claude Code 文件名格式：{uuid}.jsonl
+        uuid_match = re.match(r'([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl', filename)
+        if uuid_match:
+            return mtime_str[:10], uuid_match.group(1)[:8]
+        return mtime_str[:10], filename[:8]
+
+    @staticmethod
+    def _parse_kiro_filename(filename: str, mtime_str: str) -> Tuple[str, str]:
+        """从 Kiro CLI 文件名提取日期和 ID。格式：{uuid}.jsonl"""
         uuid_match = re.match(r'([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl', filename)
         if uuid_match:
             return mtime_str[:10], uuid_match.group(1)[:8]

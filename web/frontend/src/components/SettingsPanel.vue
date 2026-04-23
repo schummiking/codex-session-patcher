@@ -76,6 +76,16 @@
               <span class="form-hint">{{ $t('settings.opencodeEnabledHint') }}</span>
             </template>
           </n-form-item>
+
+          <n-form-item :label="$t('settings.kiroEnabled')">
+            <n-switch
+              :value="settingsStore.kiroEnabled"
+              @update:value="settingsStore.setKiroEnabled"
+            />
+            <template #feedback>
+              <span class="form-hint">{{ $t('settings.kiroEnabledHint') }}</span>
+            </template>
+          </n-form-item>
         </n-space>
       </n-card>
 

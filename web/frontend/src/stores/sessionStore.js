@@ -12,7 +12,7 @@ export const useSessionStore = defineStore('session', () => {
   const aiRewrite = ref(null)
   const aiRewriteLoading = ref(false)
   const lastError = ref(null) // 最近一次错误信息，组件层可监听并展示
-  const activeTab = ref('codex') // 'codex' | 'claude_code' | 'opencode'
+  const activeTab = ref('codex') // 'codex' | 'claude_code' | 'opencode' | 'kiro'
   const isSearchMode = ref(false) // 是否处于搜索模式
   let _tabInitialized = false
 
@@ -20,11 +20,13 @@ export const useSessionStore = defineStore('session', () => {
   const codexSessions = computed(() => sessions.value.filter(s => s.format === 'codex'))
   const claudeSessions = computed(() => sessions.value.filter(s => s.format === 'claude_code'))
   const opencodeSessions = computed(() => sessions.value.filter(s => s.format === 'opencode'))
+  const kiroSessions = computed(() => sessions.value.filter(s => s.format === 'kiro'))
 
   // 当前 Tab 的会话
   const activeTabSessions = computed(() => {
     if (activeTab.value === 'codex') return codexSessions.value
     if (activeTab.value === 'opencode') return opencodeSessions.value
+    if (activeTab.value === 'kiro') return kiroSessions.value
     return claudeSessions.value
   })
 
@@ -47,6 +49,8 @@ export const useSessionStore = defineStore('session', () => {
             activeTab.value = 'claude_code'
           } else if (opencodeSessions.value.length > 0) {
             activeTab.value = 'opencode'
+          } else if (kiroSessions.value.length > 0) {
+            activeTab.value = 'kiro'
           }
         }
       }
@@ -133,11 +137,24 @@ export const useSessionStore = defineStore('session', () => {
 
   async function patchSession(id, selectedLines = null, cleanReasoning = null) {
     let replacements = null
+    // 优先使用 AI 改写结果
     if (aiRewrite.value?.items?.length > 0) {
       replacements = aiRewrite.value.items.map(item => ({
         line_num: item.line_num,
         replacement_text: item.replacement
       }))
+    }
+    // 收集用户在预览面板中手动编辑的替换文本
+    if (preview.value?.changes?.length > 0) {
+      const edited = preview.value.changes
+        .filter(c => c.type === 'replace' && c.replacement)
+        .map(c => ({ line_num: c.line_num, replacement_text: c.replacement }))
+      if (edited.length > 0) {
+        const map = new Map()
+        if (replacements) replacements.forEach(r => map.set(r.line_num, r))
+        edited.forEach(r => map.set(r.line_num, r))
+        replacements = Array.from(map.values())
+      }
     }
     try {
       const data = await api.patchSession(id || selectedId.value, replacements, selectedLines, cleanReasoning)
@@ -225,6 +242,7 @@ export const useSessionStore = defineStore('session', () => {
     codexSessions,
     claudeSessions,
     opencodeSessions,
+    kiroSessions,
     activeTabSessions,
     fetchSessions,
     setActiveTab,
