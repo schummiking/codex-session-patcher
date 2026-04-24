@@ -273,7 +273,7 @@ class TestMemoryParser:
 
 这是另一段正常内容。
 """
-        with open(config.memory_file, 'w') as f:
+        with open(config.memory_file, 'w', encoding='utf-8') as f:
             f.write(memory_content)
 
         parser = MemoryParser(config, RefusalDetector())
@@ -288,7 +288,7 @@ class TestMemoryParser:
         os.makedirs(os.path.dirname(config.memory_file), exist_ok=True)
 
         memory_content = "# 记忆文件\n\n这是正常内容。\n"
-        with open(config.memory_file, 'w') as f:
+        with open(config.memory_file, 'w', encoding='utf-8') as f:
             f.write(memory_content)
 
         parser = MemoryParser(config, RefusalDetector())
@@ -320,7 +320,7 @@ class TestIntegration:
                 f.write(json.dumps(item, ensure_ascii=False) + '\n')
 
         memory_content = "# 记忆\n\n抱歉，我无法帮助。\n"
-        with open(config.memory_file, 'w') as f:
+        with open(config.memory_file, 'w', encoding='utf-8') as f:
             f.write(memory_content)
 
         # 执行修补
@@ -346,7 +346,7 @@ class TestIntegration:
                                 assert "抱歉" not in item.get('text', '')
 
         # 验证记忆已清理
-        with open(config.memory_file, 'r') as f:
+        with open(config.memory_file, 'r', encoding='utf-8') as f:
             cleaned_memory = f.read()
 
         assert "抱歉" not in cleaned_memory

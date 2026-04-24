@@ -8,11 +8,13 @@ import logging
 import os
 import re
 import json
+import sys
 from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass, field
 
 from .formats import SessionFormat, detect_session_format, decode_claude_project_path
+from .sqlite_adapter import _get_opencode_default_dir
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ class SessionParser:
     DEFAULT_DIRS = {
         SessionFormat.CODEX: "~/.codex/sessions/",
         SessionFormat.CLAUDE_CODE: "~/.claude/projects/",
-        SessionFormat.OPENCODE: "~/.local/share/opencode/",
+        SessionFormat.OPENCODE: _get_opencode_default_dir(),
         SessionFormat.KIRO: "~/.kiro/sessions/cli/",
     }
 
@@ -115,14 +117,16 @@ class SessionParser:
 
     def _detect_format(self, full_path: str, root: str) -> SessionFormat:
         """自动检测文件格式"""
-        codex_dir = os.path.expanduser("~/.codex/")
-        claude_dir = os.path.expanduser("~/.claude/")
-        kiro_dir = os.path.expanduser("~/.kiro/")
-        if root.startswith(codex_dir):
+        # 统一路径分隔符以确保跨平台兼容
+        root_normalized = os.path.normpath(root)
+        codex_dir = os.path.normpath(os.path.expanduser("~/.codex/"))
+        claude_dir = os.path.normpath(os.path.expanduser("~/.claude/"))
+        kiro_dir = os.path.normpath(os.path.expanduser("~/.kiro/"))
+        if root_normalized.startswith(codex_dir):
             return SessionFormat.CODEX
-        if root.startswith(claude_dir):
+        if root_normalized.startswith(claude_dir):
             return SessionFormat.CLAUDE_CODE
-        if root.startswith(kiro_dir):
+        if root_normalized.startswith(kiro_dir):
             return SessionFormat.KIRO
         # 回退到内容检测
         return detect_session_format(full_path)
@@ -156,8 +160,11 @@ class SessionParser:
     def _extract_project_path(root: str) -> Optional[str]:
         """从 Claude Code 目录路径中提取项目路径"""
         claude_projects_dir = os.path.expanduser("~/.claude/projects/")
-        if root.startswith(claude_projects_dir):
-            encoded = root[len(claude_projects_dir):].rstrip('/')
+        # 统一路径分隔符以确保跨平台兼容
+        root_normalized = root.replace('\\', '/')
+        projects_normalized = claude_projects_dir.replace('\\', '/')
+        if root_normalized.startswith(projects_normalized):
+            encoded = root_normalized[len(projects_normalized):].rstrip('/')
             if encoded:
                 return decode_claude_project_path(encoded)
         return None

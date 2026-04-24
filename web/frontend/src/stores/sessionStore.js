@@ -20,7 +20,7 @@ export const useSessionStore = defineStore('session', () => {
   const codexSessions = computed(() => sessions.value.filter(s => s.format === 'codex'))
   const claudeSessions = computed(() => sessions.value.filter(s => s.format === 'claude_code'))
   const opencodeSessions = computed(() => sessions.value.filter(s => s.format === 'opencode'))
-  const kiroSessions = computed(() => sessions.value.filter(s => s.format === 'kiro'))
+  const kiroSessions = computed(() => sessions.value.filter(s => s.format === 'kiro' || s.format === 'kiro_ide' || s.format === 'kiro_cli'))
 
   // 当前 Tab 的会话
   const activeTabSessions = computed(() => {
@@ -40,18 +40,28 @@ export const useSessionStore = defineStore('session', () => {
       // 仅首次加载时自动选 Tab，刷新时保留当前 Tab
       if (!_tabInitialized) {
         _tabInitialized = true
-        // Codex 优先，有数据就停在 Codex
+        const settingsStore = useSettingsStore()
+
+        // 自动启用有数据的平台（首次加载时根据实际数据自动开启）
+        if (claudeSessions.value.length > 0 && !settingsStore.claudeCodeEnabled) {
+          settingsStore.setClaudeCodeEnabled(true)
+        }
+        if (opencodeSessions.value.length > 0 && !settingsStore.opencodeEnabled) {
+          settingsStore.setOpencodeEnabled(true)
+        }
+        if (kiroSessions.value.length > 0 && !settingsStore.kiroEnabled) {
+          settingsStore.setKiroEnabled(true)
+        }
+
+        // 自动选中有数据的第一个 Tab
         if (codexSessions.value.length > 0) {
           activeTab.value = 'codex'
-        } else {
-          const settingsStore = useSettingsStore()
-          if (settingsStore.claudeCodeEnabled && claudeSessions.value.length > 0) {
-            activeTab.value = 'claude_code'
-          } else if (opencodeSessions.value.length > 0) {
-            activeTab.value = 'opencode'
-          } else if (kiroSessions.value.length > 0) {
-            activeTab.value = 'kiro'
-          }
+        } else if (claudeSessions.value.length > 0) {
+          activeTab.value = 'claude_code'
+        } else if (opencodeSessions.value.length > 0) {
+          activeTab.value = 'opencode'
+        } else if (kiroSessions.value.length > 0) {
+          activeTab.value = 'kiro'
         }
       }
 

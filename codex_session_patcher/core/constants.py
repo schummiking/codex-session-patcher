@@ -37,3 +37,6 @@ DEFAULT_KIRO_SESSION_DIR = "~/.kiro/sessions/cli/"
 
 # Claude Code 中跳过处理的行类型
 CLAUDE_CODE_SKIP_TYPES = {"file-history-snapshot", "last-prompt", "system"}
+
+# Kiro IDE 会话格式标识
+KIRO_IDE_FORMAT = "kiro_ide"

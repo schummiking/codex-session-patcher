@@ -12,6 +12,8 @@ class SessionFormatEnum(str, Enum):
     CLAUDE_CODE = "claude_code"
     OPENCODE = "opencode"
     KIRO = "kiro"
+    KIRO_IDE = "kiro_ide"
+    KIRO_CLI = "kiro_cli"
 
 
 class ChangeType(str, Enum):

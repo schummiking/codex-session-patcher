@@ -172,7 +172,10 @@ async def call_llm(settings: Settings, messages: list[dict]) -> str:
     choices = data.get("choices", [])
     if not choices:
         raise RuntimeError("AI 返回了空结果")
-    return choices[0]["message"]["content"].strip()
+    content = choices[0].get("message", {}).get("content")
+    if not content:
+        raise RuntimeError("AI 返回了空内容")
+    return content.strip()
 
 
 async def generate_ai_rewrite(
@@ -200,6 +203,30 @@ async def generate_ai_rewrite(
         except Exception as e:
             return AIRewriteResponse(
                 success=False, error=f"读取 OpenCode 会话失败: {e}"
+            )
+    elif session_format == SessionFormat.KIRO_IDE:
+        try:
+            from codex_session_patcher.core.kiro_ide_adapter import KiroIDEAdapter
+
+            adapter = KiroIDEAdapter()
+            parsed_lines = adapter.load_session_messages(file_path)
+        except Exception as e:
+            return AIRewriteResponse(
+                success=False, error=f"读取 Kiro IDE 会话失败: {e}"
+            )
+    elif session_format == SessionFormat.KIRO_CLI:
+        if not session_id:
+            return AIRewriteResponse(
+                success=False, error="Kiro CLI 会话需要提供 session_id"
+            )
+        try:
+            from codex_session_patcher.core.kiro_cli_db_adapter import KiroCliDBAdapter
+
+            adapter = KiroCliDBAdapter(file_path)
+            parsed_lines = adapter.load_session_messages(session_id)
+        except Exception as e:
+            return AIRewriteResponse(
+                success=False, error=f"读取 Kiro CLI 会话失败: {e}"
             )
     else:
         try:

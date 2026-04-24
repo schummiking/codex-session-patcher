@@ -8,6 +8,7 @@ import copy
 import json
 import logging
 import os
+import sys
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Dict, List, Any, Tuple
@@ -20,6 +21,8 @@ class SessionFormat(Enum):
     CLAUDE_CODE = "claude_code"
     OPENCODE = "opencode"
     KIRO = "kiro"
+    KIRO_IDE = "kiro_ide"
+    KIRO_CLI = "kiro_cli"
 
 
 # ─── 策略基类 ─────────────────────────────────────────────────────────────────
@@ -332,6 +335,87 @@ class KiroFormatStrategy(FormatStrategy):
         return updated, removed
 
 
+# ─── Kiro IDE 策略 ────────────────────────────────────────────────────────────
+
+class KiroIDEFormatStrategy(FormatStrategy):
+    """Kiro IDE 格式：单个 JSON 文件，history 数组，message.role + message.content
+
+    会话文件结构:
+    {
+        "history": [
+            {"message": {"role": "user", "content": [{"type": "text", "text": "..."}]}},
+            {"message": {"role": "assistant", "content": "..."}, "promptLogs": [...]},
+            ...
+        ]
+    }
+
+    转换为管道可处理的 dict 列表后:
+    [
+        {"type": "user", "message": {"role": "user", "content": "..."}},
+        {"type": "assistant", "message": {"role": "assistant", "content": "..."}},
+        ...
+    ]
+    """
+
+    def get_assistant_messages(self, lines):
+        messages = []
+        for idx, line in enumerate(lines):
+            if line.get('type') == 'assistant':
+                msg = line.get('message', {})
+                if msg.get('role') == 'assistant':
+                    messages.append((idx, line))
+        return messages
+
+    def get_thinking_items(self, lines):
+        return []
+
+    def extract_text_content(self, msg):
+        message = msg.get('message', {})
+        content = message.get('content', '')
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = []
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'text':
+                    texts.append(item.get('text', ''))
+            return '\n'.join(texts)
+        return ''
+
+    def update_text_content(self, msg, new_text):
+        updated = copy.deepcopy(msg)
+        message = updated.get('message', {})
+        content = message.get('content', '')
+        if isinstance(content, str):
+            message['content'] = new_text
+        elif isinstance(content, list):
+            replaced = False
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'text':
+                    item['text'] = new_text
+                    replaced = True
+                    break
+            if not replaced:
+                content.append({'type': 'text', 'text': new_text})
+        else:
+            message['content'] = new_text
+        return updated
+
+    def remove_thinking_from_message(self, msg):
+        updated = copy.deepcopy(msg)
+        message = updated.get('message', {})
+        content = message.get('content', [])
+        if not isinstance(content, list):
+            return updated, 0
+        original_len = len(content)
+        message['content'] = [
+            item for item in content
+            if not (isinstance(item, dict) and item.get('type') in ('thinking', 'reasoning'))
+        ]
+        removed = original_len - len(message['content'])
+        return updated, removed
+
+
 # ─── 工厂 & 工具函数 ──────────────────────────────────────────────────────────
 
 def get_format_strategy(fmt: SessionFormat) -> FormatStrategy:
@@ -343,6 +427,10 @@ def get_format_strategy(fmt: SessionFormat) -> FormatStrategy:
         return OpenCodeFormatStrategy()
     elif fmt == SessionFormat.KIRO:
         return KiroFormatStrategy()
+    elif fmt == SessionFormat.KIRO_IDE:
+        return KiroIDEFormatStrategy()
+    elif fmt == SessionFormat.KIRO_CLI:
+        return KiroIDEFormatStrategy()  # 转换后的消息结构相同
     raise ValueError(f"未知的会话格式: {fmt}")
 
 
@@ -376,26 +464,49 @@ def detect_session_format(file_path: str) -> SessionFormat:
 def _detect_format_from_path(file_path: str) -> SessionFormat:
     """根据文件所在目录推测格式"""
     expanded = os.path.expanduser(file_path)
-    codex_dir = os.path.expanduser("~/.codex/")
-    claude_dir = os.path.expanduser("~/.claude/")
-    opencode_dir = os.path.expanduser("~/.local/share/opencode/")
-    kiro_dir = os.path.expanduser("~/.kiro/")
+    # 统一使用 os.path.normpath 确保路径分隔符一致
+    expanded = os.path.normpath(expanded)
+    codex_dir = os.path.normpath(os.path.expanduser("~/.codex/"))
+    claude_dir = os.path.normpath(os.path.expanduser("~/.claude/"))
+    kiro_dir = os.path.normpath(os.path.expanduser("~/.kiro/"))
+
     if expanded.startswith(codex_dir):
         return SessionFormat.CODEX
     if expanded.startswith(claude_dir):
         return SessionFormat.CLAUDE_CODE
-    if expanded.startswith(opencode_dir) or expanded.endswith('.db'):
-        return SessionFormat.OPENCODE
     if expanded.startswith(kiro_dir):
         return SessionFormat.KIRO
+
+    # OpenCode: 跨平台路径检测
+    if sys.platform == 'win32':
+        local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~/AppData/Local'))
+        opencode_dir = os.path.normpath(os.path.join(local_app_data, 'opencode'))
+    else:
+        opencode_dir = os.path.normpath(os.path.expanduser("~/.local/share/opencode/"))
+
+    if expanded.startswith(opencode_dir) or expanded.endswith('.db'):
+        return SessionFormat.OPENCODE
+
     return SessionFormat.CODEX  # 默认回退
 
 
 def decode_claude_project_path(encoded: str) -> str:
     """将 Claude Code 的编码目录名转回文件系统路径。
-    例："-Users-foo-bar" → "/Users/foo/bar"
+
+    Unix 示例："-Users-foo-bar" → "/Users/foo/bar"
+    Windows 示例："-C-Users-foo-bar" → "C:/Users/foo/bar"（Windows 上 Claude 使用驱动器号）
     """
     if not encoded or not encoded.startswith('-'):
         return encoded
-    # 去掉首个 '-'，然后将 '-' 替换为 '/'
-    return '/' + encoded[1:].replace('-', '/')
+
+    if sys.platform == 'win32':
+        # Windows: "-C-Users-foo-bar" → "C:/Users/foo/bar"
+        parts = encoded[1:].split('-')
+        if len(parts) >= 2 and len(parts[0]) == 1 and parts[0].isalpha():
+            # 第一段是驱动器号
+            return parts[0] + ':/' + '/'.join(parts[1:])
+        # 回退：与 Unix 相同处理
+        return '/' + encoded[1:].replace('-', '/')
+    else:
+        # Unix: 去掉首个 '-'，然后将 '-' 替换为 '/'
+        return '/' + encoded[1:].replace('-', '/')

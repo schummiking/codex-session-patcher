@@ -379,7 +379,7 @@ class TestOpenCodeCTFInstaller:
         assert os.path.exists(installer.readme_path)
 
         # 验证标记
-        with open(installer.agents_md_path, 'r') as f:
+        with open(installer.agents_md_path, 'r', encoding='utf-8') as f:
             content = f.read()
         assert CTF_MARKER in content
 
@@ -397,7 +397,7 @@ class TestOpenCodeCTFInstaller:
         success, message = installer.install(custom_prompt=custom)
         assert success
 
-        with open(installer.agents_md_path, 'r') as f:
+        with open(installer.agents_md_path, 'r', encoding='utf-8') as f:
             content = f.read()
         assert content == custom
 

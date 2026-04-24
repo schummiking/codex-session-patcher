@@ -17,14 +17,32 @@ import logging
 import os
 import shutil
 import sqlite3
+import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+
+def _get_opencode_default_dir() -> str:
+    """获取 OpenCode 默认数据目录（跨平台）"""
+    if sys.platform == 'win32':
+        # Windows: %LOCALAPPDATA%/opencode/
+        local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~/AppData/Local'))
+        return os.path.join(local_app_data, 'opencode')
+    else:
+        # Linux/macOS: ~/.local/share/opencode/
+        return os.path.expanduser("~/.local/share/opencode/")
+
+
+def _get_opencode_default_db() -> str:
+    """获取 OpenCode 默认数据库路径（跨平台）"""
+    return os.path.join(_get_opencode_default_dir(), "opencode.db")
+
+
 # 默认数据库路径
-DEFAULT_OPENCODE_DB = os.path.expanduser("~/.local/share/opencode/opencode.db")
-DEFAULT_OPENCODE_DIR = os.path.expanduser("~/.local/share/opencode/")
+DEFAULT_OPENCODE_DB = _get_opencode_default_db()
+DEFAULT_OPENCODE_DIR = _get_opencode_default_dir()
 
 
 class OpenCodeDBAdapter:

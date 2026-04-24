@@ -58,7 +58,7 @@ class TestCustomPromptParameter:
         # install() 写入的文件由 _get_prompt_file() 决定，默认为 ctf_optimized.md
         prompt_file = installer._get_prompt_file()
         actual_path = os.path.join(installer.prompts_dir, prompt_file)
-        with open(actual_path, 'r') as f:
+        with open(actual_path, 'r', encoding='utf-8') as f:
             content = f.read()
         assert content == custom
 
@@ -76,7 +76,7 @@ class TestCustomPromptParameter:
         # install() 写入的文件由 _get_prompt_file() 决定，默认为 ctf_optimized.md
         prompt_file = installer._get_prompt_file()
         actual_path = os.path.join(installer.prompts_dir, prompt_file)
-        with open(actual_path, 'r') as f:
+        with open(actual_path, 'r', encoding='utf-8') as f:
             content = f.read()
         # 默认内容应来自 BUILTIN_TEMPLATES 中标记为 default 的模板
         assert len(content) > 100
@@ -94,7 +94,7 @@ class TestCustomPromptParameter:
         success, _ = installer.install(custom_prompt=custom)
         assert success
 
-        with open(installer.prompt_path, 'r') as f:
+        with open(installer.prompt_path, 'r', encoding='utf-8') as f:
             content = f.read()
         assert content == custom
 

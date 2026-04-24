@@ -224,6 +224,9 @@ def handle_rewrite(original_request: str):
             if sys.platform == 'darwin':
                 subprocess.run(['pbcopy'], input=rewritten.encode('utf-8'), check=True)
                 print('✅ 已复制到剪贴板')
+            elif sys.platform == 'win32':
+                subprocess.run(['clip'], input=rewritten.encode('utf-16le'), check=True)
+                print('✅ 已复制到剪贴板')
             elif sys.platform == 'linux':
                 subprocess.run(['xclip', '-selection', 'clipboard'], input=rewritten.encode('utf-8'), check=True)
                 print('✅ 已复制到剪贴板')
@@ -251,11 +254,18 @@ def resolve_session_format(args) -> SessionFormat:
     else:
         # auto 模式：如果指定了 session-dir，则自动检测
         if args.session_dir is not None and args.session_dir != argparse.SUPPRESS:
-            codex_dir = os.path.expanduser("~/.codex/")
-            claude_dir = os.path.expanduser("~/.claude/")
-            opencode_dir = os.path.expanduser("~/.local/share/opencode/")
-            kiro_dir = os.path.expanduser("~/.kiro/")
-            expanded = os.path.expanduser(args.session_dir)
+            codex_dir = os.path.normpath(os.path.expanduser("~/.codex/"))
+            claude_dir = os.path.normpath(os.path.expanduser("~/.claude/"))
+            kiro_dir = os.path.normpath(os.path.expanduser("~/.kiro/"))
+            expanded = os.path.normpath(os.path.expanduser(args.session_dir))
+
+            # OpenCode: 跨平台路径检测
+            if sys.platform == 'win32':
+                local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~/AppData/Local'))
+                opencode_dir = os.path.normpath(os.path.join(local_app_data, 'opencode'))
+            else:
+                opencode_dir = os.path.normpath(os.path.expanduser("~/.local/share/opencode/"))
+
             if expanded.startswith(codex_dir):
                 return SessionFormat.CODEX
             if expanded.startswith(claude_dir):

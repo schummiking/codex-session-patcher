@@ -115,7 +115,10 @@ async def request_openai_chat_completion(
     body: dict,
     timeout: float = 30.0,
 ) -> dict:
-    """发送 OpenAI 兼容 chat/completions 请求并统一处理错误。"""
+    """发送 OpenAI 兼容 chat/completions 请求并统一处理错误。
+
+    如果非 streaming 模式返回 content=null，自动回退到 streaming 模式收集内容。
+    """
     endpoint = build_chat_completions_endpoint(ai_endpoint)
 
     headers = {
@@ -136,4 +139,54 @@ async def request_openai_chat_completion(
                 f"AI API 请求失败：{exc}。{_build_endpoint_hint(endpoint)}"
             ) from exc
 
-    return parse_json_response(endpoint, response)
+    data = parse_json_response(endpoint, response)
+
+    # 检查是否返回了空 content（某些代理只支持 streaming）
+    choices = data.get("choices", [])
+    if choices:
+        content = choices[0].get("message", {}).get("content")
+        if content is not None:
+            return data
+
+    # 回退到 streaming 模式
+    stream_body = {**body, "stream": True}
+    collected_content = []
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            async with client.stream("POST", endpoint, json=stream_body, headers=headers) as resp:
+                _raise_for_error_response(endpoint, resp)
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        text = delta.get("content", "")
+                        if text:
+                            collected_content.append(text)
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+        except httpx.ConnectError as exc:
+            raise RuntimeError(
+                f"无法连接 AI API（streaming 回退）。{_build_endpoint_hint(endpoint)}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(
+                f"AI API streaming 请求失败：{exc}。{_build_endpoint_hint(endpoint)}"
+            ) from exc
+
+    if not collected_content:
+        raise RuntimeError(f"AI API 在 streaming 模式下也未返回内容。{_build_endpoint_hint(endpoint)}")
+
+    # 构造标准格式返回
+    full_content = "".join(collected_content)
+    data["choices"] = [{
+        "index": 0,
+        "message": {"role": "assistant", "content": full_content},
+        "finish_reason": "stop",
+    }]
+    return data

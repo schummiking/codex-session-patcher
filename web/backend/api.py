@@ -8,6 +8,7 @@ import os
 import json
 import re
 import shutil
+import sys
 from datetime import datetime
 from typing import Optional
 from pathlib import Path
@@ -37,6 +38,8 @@ from codex_session_patcher.core import (
 )
 from codex_session_patcher.core.patcher import clean_session_jsonl, save_session_jsonl
 from codex_session_patcher.core.sqlite_adapter import OpenCodeDBAdapter, DEFAULT_OPENCODE_DB
+from codex_session_patcher.core.kiro_ide_adapter import KiroIDEAdapter, get_kiro_ide_session_dir
+from codex_session_patcher.core.kiro_cli_db_adapter import KiroCliDBAdapter, get_kiro_cli_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +131,10 @@ def _resolve_format(format_str: str) -> Optional[SessionFormat]:
         return SessionFormat.OPENCODE
     elif format_str == 'kiro':
         return SessionFormat.KIRO
+    elif format_str == 'kiro_ide':
+        return SessionFormat.KIRO_IDE
+    elif format_str == 'kiro_cli':
+        return SessionFormat.KIRO_CLI
     return None  # auto
 
 
@@ -139,6 +146,10 @@ def _to_schema_format(fmt: SessionFormat) -> SessionFormatEnum:
         return SessionFormatEnum.OPENCODE
     elif fmt == SessionFormat.KIRO:
         return SessionFormatEnum.KIRO
+    elif fmt == SessionFormat.KIRO_IDE:
+        return SessionFormatEnum.KIRO_IDE
+    elif fmt == SessionFormat.KIRO_CLI:
+        return SessionFormatEnum.KIRO_CLI
     return SessionFormatEnum.CODEX
 
 
@@ -211,6 +222,8 @@ def list_sessions(
     # 确定需要扫描的目录
     scan_targets = []
     scan_opencode = False
+    scan_kiro_ide = False
+    scan_kiro_cli = False
 
     if session_format is None:
         # auto 模式：扫描所有目录
@@ -222,6 +235,14 @@ def list_sessions(
             scan_opencode = True
         if os.path.exists(DEFAULT_KIRO_SESSION_DIR):
             scan_targets.append((DEFAULT_KIRO_SESSION_DIR, SessionFormat.KIRO))
+        # Kiro IDE
+        kiro_ide_dir = get_kiro_ide_session_dir()
+        if os.path.isdir(kiro_ide_dir):
+            scan_kiro_ide = True
+        # Kiro CLI (SQLite)
+        kiro_cli_db = get_kiro_cli_db_path()
+        if os.path.exists(kiro_cli_db):
+            scan_kiro_cli = True
     elif session_format == SessionFormat.CODEX:
         scan_targets.append((DEFAULT_SESSION_DIR, SessionFormat.CODEX))
     elif session_format == SessionFormat.CLAUDE_CODE:
@@ -230,6 +251,10 @@ def list_sessions(
         scan_opencode = True
     elif session_format == SessionFormat.KIRO:
         scan_targets.append((DEFAULT_KIRO_SESSION_DIR, SessionFormat.KIRO))
+    elif session_format == SessionFormat.KIRO_IDE:
+        scan_kiro_ide = True
+    elif session_format == SessionFormat.KIRO_CLI:
+        scan_kiro_cli = True
 
     # 扫描 JSONL 格式会话（Codex / Claude Code）
     for session_dir, fmt in scan_targets:
@@ -308,6 +333,89 @@ def list_sessions(
         except Exception:
             logger.warning("扫描 OpenCode 数据库失败", exc_info=True)
 
+    # 扫描 Kiro IDE 会话
+    if scan_kiro_ide:
+        try:
+            adapter = KiroIDEAdapter()
+            kiro_sessions = adapter.list_sessions()
+            strategy = get_format_strategy(SessionFormat.KIRO_IDE)
+            detector = RefusalDetector()
+
+            for ki_info in kiro_sessions:
+                if ki_info.hidden:
+                    continue
+                try:
+                    has_refusal = False
+                    refusal_count = 0
+                    if not skip_refusal_check:
+                        messages = adapter.load_session_messages(ki_info.file_path)
+                        for _, msg in strategy.get_assistant_messages(messages):
+                            content = strategy.extract_text_content(msg)
+                            if content and detector.detect(content):
+                                refusal_count += 1
+                        has_refusal = refusal_count > 0
+
+                    dt = datetime.fromtimestamp(ki_info.date_created)
+                    sessions.append(Session(
+                        id=ki_info.session_id,
+                        filename=f'{ki_info.session_id}.json',
+                        path=ki_info.file_path,
+                        date=dt.strftime('%Y-%m-%d'),
+                        mtime=dt.strftime('%Y-%m-%d %H:%M:%S'),
+                        size=os.path.getsize(ki_info.file_path),
+                        has_refusal=has_refusal,
+                        refusal_count=refusal_count,
+                        has_backup=False,
+                        backup_count=0,
+                        format=SessionFormatEnum.KIRO_IDE,
+                        project_path=ki_info.workspace_directory,
+                    ))
+                except Exception:
+                    logger.warning("处理 Kiro IDE 会话 %s 失败", ki_info.session_id, exc_info=True)
+                    continue
+        except Exception:
+            logger.warning("扫描 Kiro IDE 会话失败", exc_info=True)
+
+    # 扫描 Kiro CLI 会话 (SQLite)
+    if scan_kiro_cli:
+        try:
+            kiro_cli_adapter = KiroCliDBAdapter()
+            kiro_cli_sessions = kiro_cli_adapter.list_sessions()
+            strategy = get_format_strategy(SessionFormat.KIRO_CLI)
+            detector = RefusalDetector()
+
+            for kc_info in kiro_cli_sessions:
+                try:
+                    has_refusal = False
+                    refusal_count = 0
+                    if not skip_refusal_check:
+                        messages = kiro_cli_adapter.load_session_messages(kc_info['session_id'])
+                        for _, msg in strategy.get_assistant_messages(messages):
+                            content = strategy.extract_text_content(msg)
+                            if content and detector.detect(content):
+                                refusal_count += 1
+                        has_refusal = refusal_count > 0
+
+                    sessions.append(Session(
+                        id=kc_info['session_id'],
+                        filename=kc_info['session_id'],
+                        path=kiro_cli_adapter.db_path,
+                        date=kc_info['date'],
+                        mtime=kc_info['mtime_str'],
+                        size=0,
+                        has_refusal=has_refusal,
+                        refusal_count=refusal_count,
+                        has_backup=False,
+                        backup_count=0,
+                        format=SessionFormatEnum.KIRO_CLI,
+                        project_path=kc_info.get('directory', ''),
+                    ))
+                except Exception:
+                    logger.warning("处理 Kiro CLI 会话 %s 失败", kc_info.get('session_id', ''), exc_info=True)
+                    continue
+        except Exception:
+            logger.warning("扫描 Kiro CLI 数据库失败", exc_info=True)
+
     sessions.sort(key=lambda x: x.mtime, reverse=True)
     return sessions
 
@@ -320,6 +428,10 @@ def _session_core_format(session: Session) -> SessionFormat:
         return SessionFormat.OPENCODE
     elif session.format == SessionFormatEnum.KIRO:
         return SessionFormat.KIRO
+    elif session.format == SessionFormatEnum.KIRO_IDE:
+        return SessionFormat.KIRO_IDE
+    elif session.format == SessionFormatEnum.KIRO_CLI:
+        return SessionFormat.KIRO_CLI
     return SessionFormat.CODEX
 
 
@@ -341,6 +453,22 @@ def preview_session(file_path: str, mock_response: str = MOCK_RESPONSE,
             parsed_lines = adapter.load_session_messages(session_id)
         except Exception:
             logger.warning("加载 OpenCode 会话失败: %s", session_id, exc_info=True)
+            return PreviewResponse(has_changes=False, changes=[])
+    # Kiro IDE: 从 JSON 文件加载
+    elif session_format == SessionFormat.KIRO_IDE:
+        try:
+            kiro_adapter = KiroIDEAdapter()
+            parsed_lines = kiro_adapter.load_session_messages(file_path)
+        except Exception:
+            logger.warning("加载 Kiro IDE 会话失败: %s", file_path, exc_info=True)
+            return PreviewResponse(has_changes=False, changes=[])
+    # Kiro CLI: 从 SQLite 加载
+    elif session_format == SessionFormat.KIRO_CLI and session_id:
+        try:
+            kiro_cli_adapter = KiroCliDBAdapter(file_path)
+            parsed_lines = kiro_cli_adapter.load_session_messages(session_id)
+        except Exception:
+            logger.warning("加载 Kiro CLI 会话失败: %s", session_id, exc_info=True)
             return PreviewResponse(has_changes=False, changes=[])
     else:
         try:
@@ -513,6 +641,58 @@ def patch_session(file_path: str, mock_response: str = MOCK_RESPONSE,
 
             # 写回 SQLite
             adapter.save_session_messages(session_id, cleaned_lines)
+
+        # Kiro IDE: JSON 文件处理
+        elif session_format == SessionFormat.KIRO_IDE:
+            kiro_adapter = KiroIDEAdapter()
+            if create_backup:
+                backup_path = kiro_adapter.backup_session(file_path)
+
+            lines = kiro_adapter.load_session_messages(file_path)
+
+            cleaned_lines, modified, core_changes = clean_session_jsonl(
+                lines, detector, show_content=True,
+                mock_response=mock_response,
+                session_format=session_format,
+                selected_lines=selected_lines,
+                clean_reasoning=clean_reasoning,
+            )
+
+            if replacements:
+                strategy = get_format_strategy(session_format)
+                for idx, line in enumerate(cleaned_lines):
+                    line_num = idx + 1
+                    if line_num in replacements:
+                        cleaned_lines[idx] = strategy.update_text_content(line, replacements[line_num])
+
+            # 写回 JSON
+            kiro_adapter.save_session_messages(file_path, cleaned_lines)
+
+        # Kiro CLI: SQLite 处理
+        elif session_format == SessionFormat.KIRO_CLI and session_id:
+            kiro_cli_adapter = KiroCliDBAdapter(file_path)
+            if create_backup:
+                backup_path = kiro_cli_adapter.backup_database()
+
+            lines = kiro_cli_adapter.load_session_messages(session_id)
+
+            cleaned_lines, modified, core_changes = clean_session_jsonl(
+                lines, detector, show_content=True,
+                mock_response=mock_response,
+                session_format=session_format,
+                selected_lines=selected_lines,
+                clean_reasoning=clean_reasoning,
+            )
+
+            if replacements:
+                strategy = get_format_strategy(session_format)
+                for idx, line in enumerate(cleaned_lines):
+                    line_num = idx + 1
+                    if line_num in replacements:
+                        cleaned_lines[idx] = strategy.update_text_content(line, replacements[line_num])
+
+            kiro_cli_adapter.save_session_messages(session_id, cleaned_lines)
+
         else:
             # JSONL 处理（Codex / Claude Code）
             if create_backup:
@@ -588,13 +768,15 @@ def save_settings(settings: Settings) -> bool:
     try:
         config_dir = os.path.dirname(DEFAULT_CONFIG_FILE)
         os.makedirs(config_dir, exist_ok=True)
-        os.chmod(config_dir, 0o700)
+        if sys.platform != 'win32':
+            os.chmod(config_dir, 0o700)
         # 读取现有配置以保留额外字段
         existing = _load_raw_config()
         existing.update(settings.model_dump())
         with open(DEFAULT_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(existing, f, ensure_ascii=False, indent=2)
-        os.chmod(DEFAULT_CONFIG_FILE, 0o600)
+        if sys.platform != 'win32':
+            os.chmod(DEFAULT_CONFIG_FILE, 0o600)
         return True
     except Exception:
         logger.warning("保存配置文件失败", exc_info=True)
@@ -835,7 +1017,7 @@ async def ai_rewrite_session_api(session_id: str):
         result = await generate_ai_rewrite(
             session.path, settings, settings.custom_keywords,
             session_format=core_fmt,
-            session_id=session_id if core_fmt == SessionFormat.OPENCODE else None,
+            session_id=session_id if core_fmt in (SessionFormat.OPENCODE, SessionFormat.KIRO_CLI) else None,
         )
         return result
     except Exception as e:
@@ -1188,10 +1370,12 @@ def _save_raw_config(data: dict):
     """保存原始配置文件"""
     config_dir = os.path.dirname(DEFAULT_CONFIG_FILE)
     os.makedirs(config_dir, exist_ok=True)
-    os.chmod(config_dir, 0o700)
+    if sys.platform != 'win32':
+        os.chmod(config_dir, 0o700)
     with open(DEFAULT_CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    os.chmod(DEFAULT_CONFIG_FILE, 0o600)
+    if sys.platform != 'win32':
+        os.chmod(DEFAULT_CONFIG_FILE, 0o600)
 
 
 _CTF_PROMPT_PATHS = {
